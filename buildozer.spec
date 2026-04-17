@@ -7,8 +7,7 @@ source.include_exts = py,png,jpg,kv,atlas
 version = 0.1
 
 # Зависимости для корректной работы Pygame на Android
-requirements = python3,kivy,pygame_sdl2,pillow
-
+requirements = python3,kivy==2.3.0,kivymd
 orientation = landscape
 fullscreen = 1
 

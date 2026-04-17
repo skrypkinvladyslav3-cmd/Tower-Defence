@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # МЫ МЕНЯЕМ ВЕРСИЮ UBUNTU НА БОЛЕЕ СТАРУЮ И СТАБИЛЬНУЮ
 
     steps:
       - uses: actions/checkout@v4
@@ -15,33 +15,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Buildozer dependencies
+      - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip autoconf automake libtool m4 autotools-dev \
-            build-essential pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
-            libtinfo6 cmake libffi-dev libssl-dev help2man
-          
-          # Фикс для макросов autoconf/libtool
-          sudo ln -s /usr/share/aclocal/libtool.m4 /usr/share/aclocal/ltoptions.m4 || true
-          sudo ln -s /usr/share/aclocal/ltsugar.m4 /usr/share/aclocal/ltversion.m4 || true
-          sudo ln -s /usr/share/aclocal/lt~obsolete.m4 /usr/share/aclocal/lt~obsolete.m4 || true
-
-          pip install --upgrade pip
-          pip install --upgrade setuptools wheel
-          pip install buildozer cython
+          sudo apt install -y build-essential git zip unzip autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev
+          pip install --upgrade pip setuptools Cython==0.29.33 buildozer
 
       - name: Build with Buildozer
-        run: |
-          # Принудительно заставляем систему видеть макросы libtool
-          export AC_LOCAL_FLAGS="-I /usr/share/aclocal"
-          buildozer android debug
-        env:
-          # Иногда помогает пропустить проверку макросов, если они просто устарели
-          AUTOCONF_IGNORE_OBSOLETE: 1
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: package
-          path: bin/*.apk
+        run: buildozer android debug
