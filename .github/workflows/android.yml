@@ -18,14 +18,16 @@ jobs:
       - name: Install Buildozer dependencies
         run: |
           sudo apt update
+          # Полный фарш инструментов для компиляции
           sudo apt install -y git zip unzip autoconf automake libtool m4 autotools-dev \
-            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 \
-            cmake libffi-dev libssl-dev
+            build-essential pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
+            libtinfo6 cmake libffi-dev libssl-dev help2man
           pip install --upgrade pip
-          pip install buildozer cython setuptools wheel
+          pip install --upgrade setuptools wheel
+          pip install buildozer cython
 
       - name: Build with Buildozer
-        # Оставляем только эту команду. Она сама создаст всё нужное.
+        # Оставляем только одну команду, без чистки
         run: buildozer android debug
 
       - name: Upload APK
