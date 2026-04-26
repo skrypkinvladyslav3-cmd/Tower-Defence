@@ -22,10 +22,12 @@ jobs:
 
       - name: Build APK
         run: |
-          # Використовуємо 'yes', щоб автоматично прийняти всі ліцензії SDK під час збірки
+          # Прибираємо фонові процеси Gradle і жорстко обмежуємо пам'ять
+          export GRADLE_OPTS="-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx1536m"
           yes | buildozer -v android debug
         env:
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
+          # Включаємо логування помилок Java
+          _JAVA_OPTIONS: "-Xmx1536m"
 
       - name: Upload
         uses: actions/upload-artifact@v4
