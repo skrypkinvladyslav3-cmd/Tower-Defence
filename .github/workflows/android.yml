@@ -22,12 +22,9 @@ jobs:
 
       - name: Build APK
         run: |
-          # Автоматично приймаємо ліцензії Android перед початком
-          yes | buildozer android status
-          # Запускаємо збірку
-          buildozer -v android debug
+          # Використовуємо 'yes', щоб автоматично прийняти всі ліцензії SDK під час збірки
+          yes | buildozer -v android debug
         env:
-          # Допомагаємо Gradle не "впасти" через пам'ять
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
 
       - name: Upload
