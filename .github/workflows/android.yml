@@ -1,18 +1,29 @@
 name: Build Android APK
-on: [push, pull_request]
+on: [push]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
+      # Цей блок видаляє зайві програми з сервера GitHub, щоб звільнити ~20ГБ місця
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
       - name: Build with Buildozer
         uses: ArtemShatrit/buildozer-action@v1
         with:
           command: buildozer -v android debug
           repository_root: .
+
       - name: Upload APK
         uses: actions/upload-artifact@v2
         with:
-          name: game-apk
+          name: TowerDefense-APK
           path: bin/*.apk
