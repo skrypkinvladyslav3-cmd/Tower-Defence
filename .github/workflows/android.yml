@@ -22,12 +22,17 @@ jobs:
 
       - name: Build APK
         run: |
-          # Прибираємо фонові процеси Gradle і жорстко обмежуємо пам'ять
-          export GRADLE_OPTS="-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx1536m"
-          yes | buildozer -v android debug
+          # 1. Створюємо папку для SDK заздалегідь, щоб прийняти ліцензії
+          mkdir -p ~/.android && touch ~/.android/repositories.cfg
+          
+          # 2. Запускаємо чисту збірку без 'yes |', 
+          # але з налаштуваннями пам'яті всередині самого buildozer
+          buildozer -v android debug
         env:
-          # Включаємо логування помилок Java
-          _JAVA_OPTIONS: "-Xmx1536m"
+          # Обмежуємо Gradle, щоб він не займав усю пам'ять сервера
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
+          # Приймаємо ліцензії автоматично через змінну оточення
+          BUILDOZER_ALLOW_ORG_GRADLE_PROJECT_ANDROID_SKIP_SDK_READ: 1
 
       - name: Upload
         uses: actions/upload-artifact@v4
