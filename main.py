@@ -2,15 +2,13 @@ import pygame
 import math
 import random
 import json
-# Это позволит игре сохранять данные в правильное место на телефоне
 import os
 
 if 'ANDROID_ARGUMENT' in os.environ:
-    # Путь для Android
     SAVE_FILE = os.path.join(os.environ['PYTHON_SERVICE_ARGUMENT'], 'savegame.json')
 else:
-    # Путь для ПК (Mac/Windows)
     SAVE_FILE = "savegame.json"
+
 
 def load_progress():
     default_save = {
@@ -51,7 +49,14 @@ pygame.init()
 
 WIDTH, HEIGHT = 800, 600
 PANEL_HEIGHT = 100
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+# Адаптація для Android: розгортаємо на весь екран з правильним масштабом
+try:
+    screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.SCALED | pygame.FULLSCREEN)
+except AttributeError:
+    # Запасний варіант для старих версій Pygame
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
 pygame.display.set_caption("TOWER DEFENSE - BY VLAD")
 try:
     pygame.display.set_icon(pygame.image.load("Снимок экрана 2026-04-11 в 19.38.38.png"))
@@ -74,6 +79,7 @@ EXIT_COLOR = (200, 50, 50)
 EXIT_HOVER = (240, 70, 70)
 PURPLE = (147, 112, 219)
 GOLD = (255, 215, 0)
+ORANGE = (255, 140, 0)
 
 RARITY_COLORS = {
     "COMMON": (180, 180, 180),
@@ -120,14 +126,13 @@ CURRENT_MAP = MAPS[0]
 TILE_SIZE = 40
 STATE = "MENU"
 
-# Fonts (initialized later)
 font_tiny = None
-
-# --- Global lists for effects ---
 PARTICLES = []
 FLOATING_TEXTS = []
+SCREEN_SHAKE = 0
+GAME_SPEED = 1
 
-# --- Tower Stats ---
+# --- Tower & Gadget Stats ---
 TOWER_TYPES = {
     "BASIC": {"name": "Basic", "cost": 50, "range": 180, "damage": 15, "cooldown": 20, "color": (150, 150, 150),
               "unlock_cost": 0, "rarity": "COMMON"},
@@ -157,11 +162,10 @@ TOWER_TYPES = {
               "unlock_cost": 2500, "rarity": "LEGENDARY"},
     "NUCLEAR": {"name": "Nuclear", "cost": 600, "range": 300, "damage": 250, "cooldown": 90, "color": (50, 255, 50),
                 "unlock_cost": 3000, "rarity": "LEGENDARY"},
-    "BLACK_HOLE": {"name": "Black Hole", "cost": 1000, "range": 400, "damage": 600, "cooldown": 150, "color": (30, 30, 30),
-                   "unlock_cost": 5000, "rarity": "LEGENDARY"}
+    "BLACK_HOLE": {"name": "Black Hole", "cost": 1000, "range": 400, "damage": 600, "cooldown": 150,
+                   "color": (30, 30, 30), "unlock_cost": 5000, "rarity": "LEGENDARY"}
 }
 
-# --- Gadgets ---
 GADGET_TYPES = {
     "WEALTH": {"name": "Wealth", "desc": "+$200 at start", "unlock_cost": 800, "color": (50, 200, 50),
                "rarity": "COMMON"},
@@ -200,26 +204,30 @@ GADGET_TYPES = {
 }
 
 
-# --- Effect Classes ---
+# --- Classes ---
 class Particle:
-    def __init__(self, x, y, color):
+    def __init__(self, x, y, color, speed_mult=1):
         self.x = x
         self.y = y
         self.color = color
         angle = random.uniform(0, math.pi * 2)
-        speed = random.uniform(1, 4)
+        speed = random.uniform(1, 4) * speed_mult
         self.vx = math.cos(angle) * speed
         self.vy = math.sin(angle) * speed
         self.timer = random.randint(15, 30)
+        self.max_timer = self.timer
 
     def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.timer -= 1
+        self.vx *= 0.95
+        self.vy *= 0.95
+        self.x += self.vx * GAME_SPEED
+        self.y += self.vy * GAME_SPEED
+        self.timer -= 1 * GAME_SPEED
 
     def draw(self, surface):
         if self.timer > 0:
-            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), max(1, self.timer // 6))
+            size = max(1, int((self.timer / self.max_timer) * 6))
+            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), size)
 
 
 class FloatingText:
@@ -232,27 +240,24 @@ class FloatingText:
         self.vy = -1.5
 
     def update(self):
-        self.y += self.vy
-        self.timer -= 1
+        self.y += self.vy * GAME_SPEED
+        self.timer -= 1 * GAME_SPEED
 
     def draw(self, surface):
         if self.timer > 0 and font_tiny:
-            # Make text transparent over time
             text_surf = font_tiny.render(self.text, True, self.color)
             alpha = max(0, min(255, int((self.timer / 40) * 255)))
             text_surf.set_alpha(alpha)
             surface.blit(text_surf, (int(self.x), int(self.y)))
 
 
-# --- Classes ---
 class Enemy:
     def __init__(self, wave):
         self.path = CURRENT_MAP["path"]
         self.target_waypoint = 1
         self.x, self.y = self.path[0]
 
-        # Chance for BOSS to spawn every 5th wave
-        if wave % 5 == 0 and random.random() < 0.15:  # 15% chance for a boss on waves 5, 10, 15, etc.
+        if wave % 5 == 0 and random.random() < 0.15:
             self.type = "BOSS"
             self.color = PURPLE
             self.base_speed = 1.0 + (wave * 0.05)
@@ -263,7 +268,7 @@ class Enemy:
             rand = random.random()
             if rand < 0.2:
                 self.type = "FAST"
-                self.color = (255, 140, 0)
+                self.color = ORANGE
                 self.base_speed = 3.5 + (wave * 0.2)
                 self.max_health = 50 + (wave * 15)
                 self.radius = 10
@@ -292,35 +297,33 @@ class Enemy:
         current_speed = self.base_speed
         if self.slow_timer > 0:
             current_speed *= 0.4
-            self.slow_timer -= 1
+            self.slow_timer -= 1 * GAME_SPEED
         if self.poison_timer > 0:
-            self.health -= 0.2
-            self.poison_timer -= 1
+            self.health -= 0.2 * GAME_SPEED
+            self.poison_timer -= 1 * GAME_SPEED
             if random.random() < 0.2:
                 PARTICLES.append(Particle(self.x, self.y, (50, 200, 50)))
         if self.burn_timer > 0:
-            self.health -= 0.5
-            self.burn_timer -= 1
+            self.health -= 0.5 * GAME_SPEED
+            self.burn_timer -= 1 * GAME_SPEED
             if random.random() < 0.2:
-                PARTICLES.append(Particle(self.x, self.y, (255, 100, 0)))
+                PARTICLES.append(Particle(self.x, self.y, ORANGE))
 
         if self.target_waypoint < len(self.path):
             target_x, target_y = self.path[self.target_waypoint]
             dx, dy = target_x - self.x, target_y - self.y
             dist = math.hypot(dx, dy)
-            if dist < current_speed:
+            move_amount = current_speed * GAME_SPEED
+            if dist < move_amount:
                 self.target_waypoint += 1
             else:
-                self.x += (dx / dist) * current_speed
-                self.y += (dy / dist) * current_speed
+                self.x += (dx / dist) * move_amount
+                self.y += (dy / dist) * move_amount
 
     def draw(self, surface):
-        # Shadow
         pygame.draw.circle(surface, (60, 60, 60), (int(self.x + 3), int(self.y + 3)), self.radius)
-        # Outline
         pygame.draw.circle(surface, BLACK, (int(self.x), int(self.y)), self.radius + 2)
 
-        # Draw spikes if it's a boss
         if self.type == "BOSS":
             for i in range(8):
                 angle = i * (math.pi / 4)
@@ -328,34 +331,31 @@ class Enemy:
                 py = self.y + math.sin(angle) * (self.radius + 5)
                 pygame.draw.circle(surface, BLACK, (int(px), int(py)), 4)
 
-        # Body
         pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.radius)
 
-        # Status indicators
         if self.slow_timer > 0:
             pygame.draw.circle(surface, (0, 255, 255), (int(self.x), int(self.y)), self.radius + 4, 2)
         if self.poison_timer > 0:
             pygame.draw.circle(surface, (50, 200, 50), (int(self.x), int(self.y)), self.radius + 7, 2)
         if self.burn_timer > 0:
-            pygame.draw.circle(surface, (255, 100, 0), (int(self.x), int(self.y)), self.radius + 5, 2)
+            pygame.draw.circle(surface, ORANGE, (int(self.x), int(self.y)), self.radius + 5, 2)
 
-        # Health bar
         if self.health > 0 and self.health < self.max_health:
-            health_ratio = self.health / self.max_health
+            health_ratio = max(0, self.health / self.max_health)
             bar_width = 30 if self.type != "BOSS" else 50
             y_offset = self.radius + 10
-
+            r = min(255, int((1 - health_ratio) * 2 * 255))
+            g = min(255, int(health_ratio * 2 * 255))
+            health_color = (r, g, 0)
             pygame.draw.rect(surface, BLACK, (self.x - bar_width // 2 - 1, self.y - y_offset - 4, bar_width + 2, 7))
             pygame.draw.rect(surface, RED, (self.x - bar_width // 2, self.y - y_offset - 3, bar_width, 5))
-            pygame.draw.rect(surface, (0, 255, 0),
+            pygame.draw.rect(surface, health_color,
                              (self.x - bar_width // 2, self.y - y_offset - 3, bar_width * health_ratio, 5))
 
 
 class Tower:
     def __init__(self, x, y, tower_type, dmg_multiplier=1.0, equipped_gadgets=None):
-        if equipped_gadgets is None:
-            equipped_gadgets = []
-
+        if equipped_gadgets is None: equipped_gadgets = []
         self.x = x
         self.y = y
         self.type = tower_type
@@ -375,7 +375,6 @@ class Tower:
         self.fire_dur = 90
         self.earth_slow_dur = 20
 
-        # Apply gadgets
         if self.type == "BASIC" and "G_BASIC" in equipped_gadgets:
             self.damage += 10
         elif self.type == "RAPID" and "G_RAPID" in equipped_gadgets:
@@ -451,7 +450,7 @@ class Tower:
             pygame.draw.circle(surface, WHITE, (int(end_x), int(end_y)), 4)
         elif self.type == "FIRE":
             pygame.draw.line(surface, (200, 50, 0), (self.x, self.y), (end_x, end_y), 8)
-            pygame.draw.line(surface, (255, 150, 0), (self.x, self.y), (end_x, end_y), 4)
+            pygame.draw.line(surface, ORANGE, (self.x, self.y), (end_x, end_y), 4)
         elif self.type == "EARTH":
             pygame.draw.line(surface, (80, 40, 10), (self.x, self.y), (end_x, end_y), 12)
             pygame.draw.line(surface, (139, 69, 19), (self.x, self.y), (end_x, end_y), 8)
@@ -471,12 +470,14 @@ class Tower:
             pygame.draw.circle(surface, WHITE, (self.x - 3, self.y - 3), 3)
 
         if self.level > 1:
-            lvl_font = pygame.font.SysFont("Arial", 12, bold=True)
+            # Адаптація для Android: вбудований шрифт замість Arial
+            lvl_font = pygame.font.Font(None, 18)
             surface.blit(lvl_font.render(str(self.level), True, YELLOW), (self.x + 8, self.y + 8))
 
     def attack(self, enemies, surface):
+        global SCREEN_SHAKE
         if self.current_cooldown > 0:
-            self.current_cooldown -= 1
+            self.current_cooldown -= 1 * GAME_SPEED
 
         for enemy in enemies:
             dist = math.hypot(enemy.x - self.x, enemy.y - self.y)
@@ -487,8 +488,10 @@ class Tower:
                     enemy.health -= actual_damage
                     self.current_cooldown = self.cooldown
 
-                    # Create floating damage text
-                    if random.random() > 0.5:  # Don't show every bullet for rapid towers to avoid clutter
+                    if self.type in ["CANNON", "EARTH", "NUCLEAR", "BLACK_HOLE"]:
+                        SCREEN_SHAKE = max(SCREEN_SHAKE, 5 + int(actual_damage / 50))
+
+                    if random.random() > 0.5 or self.type == "SNIPER":
                         FLOATING_TEXTS.append(
                             FloatingText(enemy.x + random.randint(-10, 10), enemy.y - 20, str(int(actual_damage)),
                                          WHITE))
@@ -511,22 +514,18 @@ class Tower:
                         flash_color = PURPLE
                     elif self.type == "POISON":
                         flash_color = (50, 200, 50)
-                    elif self.type == "ELECTRIC":
-                        flash_color = YELLOW
                     elif self.type == "NUCLEAR":
                         flash_color = (50, 255, 50)
                     elif self.type == "BLACK_HOLE":
                         flash_color = (100, 0, 200)
 
-                    # Draw beam
                     if self.type != "BLACK_HOLE":
                         pygame.draw.line(surface, flash_color, (self.x, self.y), (enemy.x, enemy.y), 3)
                     else:
                         pygame.draw.line(surface, flash_color, (self.x, self.y), (enemy.x, enemy.y), 8)
 
-                    # Add sparks (particles)
-                    for _ in range(3 if self.type != "NUCLEAR" else 15):
-                        PARTICLES.append(Particle(enemy.x, enemy.y, flash_color))
+                    for _ in range(3 if self.type != "NUCLEAR" else 20):
+                        PARTICLES.append(Particle(enemy.x, enemy.y, flash_color, speed_mult=1.5))
 
                     end_x = self.x + math.cos(self.angle) * 24
                     end_y = self.y + math.sin(self.angle) * 24
@@ -537,9 +536,9 @@ class Tower:
 # --- Helper Functions ---
 def draw_grid(surface):
     for x in range(0, WIDTH, TILE_SIZE):
-        pygame.draw.line(surface, (255, 255, 255, 30), (x, 0), (x, HEIGHT - PANEL_HEIGHT))
+        pygame.draw.line(surface, (255, 255, 255, 20), (x, 0), (x, HEIGHT - PANEL_HEIGHT))
     for y in range(0, HEIGHT - PANEL_HEIGHT, TILE_SIZE):
-        pygame.draw.line(surface, (255, 255, 255, 30), (0, y), (WIDTH, y))
+        pygame.draw.line(surface, (255, 255, 255, 20), (0, y), (WIDTH, y))
 
 
 def draw_decorations(surface, decorations):
@@ -557,8 +556,6 @@ def draw_decorations(surface, decorations):
             pygame.draw.rect(surface, (46, 139, 87), (x - 8, y - 20, 16, 40), border_radius=8)
             pygame.draw.rect(surface, (46, 139, 87), (x - 18, y - 5, 12, 10), border_radius=4)
             pygame.draw.rect(surface, (46, 139, 87), (x + 6, y - 15, 12, 10), border_radius=4)
-            pygame.draw.line(surface, (0, 50, 0), (x, y), (x + 10, y - 5), 1)
-            pygame.draw.line(surface, (0, 50, 0), (x, y - 10), (x - 10, y - 15), 1)
         elif dec_type == "rock":
             pygame.draw.circle(surface, (105, 105, 105), (x, y), 15)
             pygame.draw.circle(surface, (128, 128, 128), (x + 8, y + 5), 10)
@@ -573,7 +570,7 @@ def draw_decorations(surface, decorations):
             pygame.draw.circle(surface, WHITE, (x, y - 12), 10)
             pygame.draw.circle(surface, BLACK, (x - 3, y - 14), 2)
             pygame.draw.circle(surface, BLACK, (x + 3, y - 14), 2)
-            pygame.draw.polygon(surface, (255, 140, 0), [(x, y - 10), (x, y - 12), (x + 8, y - 10)])
+            pygame.draw.polygon(surface, ORANGE, [(x, y - 10), (x, y - 12), (x + 8, y - 10)])
 
 
 def draw_map(surface):
@@ -651,14 +648,15 @@ def get_random_item_from_box(box_type):
 
 # --- Main Function ---
 def main():
-    global STATE, CURRENT_MAP, font_tiny, PARTICLES, FLOATING_TEXTS
+    global STATE, CURRENT_MAP, font_tiny, PARTICLES, FLOATING_TEXTS, SCREEN_SHAKE, GAME_SPEED
     clock = pygame.time.Clock()
 
-    font_title = pygame.font.SysFont("Arial", 50, bold=True)
-    font_large = pygame.font.SysFont("Arial", 36, bold=True)
-    font_small = pygame.font.SysFont("Arial", 22, bold=True)
-    font_mini = pygame.font.SysFont("Arial", 16, bold=True)
-    font_tiny = pygame.font.SysFont("Arial", 14, bold=True)
+    # Адаптація для Android: використовуємо базовий системний шрифт замість конкретних (як Arial)
+    font_title = pygame.font.Font(None, 65)
+    font_large = pygame.font.Font(None, 45)
+    font_small = pygame.font.Font(None, 28)
+    font_mini = pygame.font.Font(None, 22)
+    font_tiny = pygame.font.Font(None, 18)
 
     save_data = load_progress()
     diamonds = save_data["diamonds"]
@@ -683,19 +681,21 @@ def main():
     menu_backpack_tab = "TOWERS"
 
     anim_ticks = 0
-    won_item_type = None
-    won_item_id = None
+    won_item_type = won_item_id = None
     won_duplicate = False
     won_compensation = 0
     current_box_type = None
 
-    # UI Rectangles
     play_btn_rect = pygame.Rect(WIDTH // 2 - 150, 180, 300, 60)
     menu_shop_btn_rect = pygame.Rect(WIDTH // 2 - 150, 260, 300, 60)
     menu_backpack_btn_rect = pygame.Rect(WIDTH // 2 - 150, 340, 300, 60)
     exit_btn_rect = pygame.Rect(WIDTH // 2 - 150, 420, 300, 60)
-    game_btn_rect = pygame.Rect(WIDTH - 190, HEIGHT - 80, 170, 60)
-    in_game_backpack_btn_rect = pygame.Rect(WIDTH - 380, HEIGHT - 80, 170, 60)
+
+    game_btn_rect = pygame.Rect(WIDTH - 170, HEIGHT - 80, 150, 60)
+    speed_btn_rect = pygame.Rect(WIDTH - 240, HEIGHT - 80, 60, 60)
+    in_game_backpack_btn_rect = pygame.Rect(WIDTH - 390, HEIGHT - 80, 140, 60)
+    pause_btn_rect = pygame.Rect(WIDTH - 120, 20, 100, 40)
+
     promo_rect = pygame.Rect(WIDTH // 2 - 260, 550, 250, 40)
     back_to_menu_rect_shop = pygame.Rect(WIDTH // 2 + 10, 550, 250, 40)
     back_to_menu_rect_bp = pygame.Rect(WIDTH // 2 - 125, 550, 250, 40)
@@ -707,25 +707,18 @@ def main():
     tab_boxes_rect = pygame.Rect(WIDTH // 2 + 10, 60, 180, 40)
     tab_bp_towers_rect = pygame.Rect(WIDTH // 2 - 190, 60, 180, 40)
     tab_bp_gadgets_rect = pygame.Rect(WIDTH // 2 + 10, 60, 180, 40)
+    resume_btn_rect = pygame.Rect(WIDTH // 2 - 100, 250, 200, 50)
 
-    item_slots = []
-    card_w, card_h = 140, 135
-    start_x, start_y = 30, 110
+    item_slots, gadget_slots = [], []
     for i, t_type in enumerate(TOWER_TYPES.keys()):
-        rect = pygame.Rect(start_x + (i % 5) * 148, start_y + (i // 5) * 145, card_w, card_h)
-        item_slots.append({"type": t_type, "rect": rect})
-
-    gadget_slots = []
-    g_w, g_h = 180, 80
-    g_start_x, g_start_y = 20, 105
+        item_slots.append({"type": t_type, "rect": pygame.Rect(30 + (i % 5) * 148, 110 + (i // 5) * 145, 140, 135)})
     for i, g_type in enumerate(GADGET_TYPES.keys()):
-        col = i % 4
-        row = i // 4
-        rect = pygame.Rect(g_start_x + col * (g_w + 10), g_start_y + row * (g_h + 8), g_w, g_h)
-        gadget_slots.append({"type": g_type, "rect": rect})
+        gadget_slots.append({"type": g_type, "rect": pygame.Rect(20 + (i % 4) * 190, 105 + (i // 4) * 88, 180, 80)})
 
     box_normal_rect = pygame.Rect(WIDTH // 2 - 250, 200, 200, 250)
     box_premium_rect = pygame.Rect(WIDTH // 2 + 50, 200, 200, 250)
+
+    display_surface = pygame.Surface((WIDTH, HEIGHT))
 
     def save_all():
         save_progress(diamonds, unlocked_towers, equipped_towers, unlocked_gadgets, equipped_gadgets, used_codes)
@@ -734,6 +727,10 @@ def main():
     while running:
         mx, my = pygame.mouse.get_pos()
         upgrade_btn_rect = sell_btn_rect = pygame.Rect(0, 0, 0, 0)
+
+        shake_offset_x = random.randint(-SCREEN_SHAKE, SCREEN_SHAKE) if SCREEN_SHAKE > 0 else 0
+        shake_offset_y = random.randint(-SCREEN_SHAKE, SCREEN_SHAKE) if SCREEN_SHAKE > 0 else 0
+        mx_real, my_real = mx - shake_offset_x, my - shake_offset_y
 
         if selected_placed_tower:
             t = selected_placed_tower
@@ -749,29 +746,28 @@ def main():
                 running = False
 
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    if STATE == "GAME":
+                        STATE = "PAUSED"
+                    elif STATE == "PAUSED":
+                        STATE = "GAME"
+
                 if STATE == "MENU_SHOP" and active_input:
                     if event.key == pygame.K_RETURN:
                         code = input_text.upper()
                         if code == "AZURI" and "AZURI" not in used_codes:
-                            diamonds += 67
+                            diamonds += 67;
                             used_codes.append("AZURI")
-                        elif code == "artishok" and "artishok" not in used_codes:
-                            diamonds += 100
-                            used_codes.append("artishok")
-
-
-
-
-
-
+                        elif code == "ARTISHOK" and "ARTISHOK" not in used_codes:
+                            diamonds += 100;
+                            used_codes.append("ARTISHOK")
                         save_all()
                         input_text = ""
                         active_input = False
                     elif event.key == pygame.K_BACKSPACE:
                         input_text = input_text[:-1]
                     else:
-                        if len(input_text) < 15:
-                            input_text += event.unicode
+                        if len(input_text) < 15: input_text += event.unicode
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if STATE == "MENU":
@@ -783,6 +779,7 @@ def main():
                         money, wave, enemies_spawned, wave_active = 400, 1, 0, False
                         lives = 10
                         dmg_mult = 1.0
+                        GAME_SPEED = 1
 
                         if "WEALTH" in equipped_gadgets: money += 200
                         if "HEALTH" in equipped_gadgets: lives += 5
@@ -796,29 +793,32 @@ def main():
                     elif menu_backpack_btn_rect.collidepoint(mx, my):
                         STATE = "MENU_BACKPACK"
                     elif exit_btn_rect.collidepoint(mx, my):
-                        save_all()
-                        running = False
+                        save_all(); running = False
 
                 elif STATE == "GAME":
-                    if game_to_menu_rect.collidepoint(mx, my):
-                        save_all()
-                        STATE = "MENU"
+                    if game_to_menu_rect.collidepoint(mx_real, my_real):
+                        save_all();
+                        STATE = "MENU";
                         selected_placed_tower = None
-                    elif game_btn_rect.collidepoint(mx, my) and not wave_active:
+                    elif pause_btn_rect.collidepoint(mx_real, my_real):
+                        STATE = "PAUSED"
+                    elif speed_btn_rect.collidepoint(mx_real, my_real):
+                        GAME_SPEED = 2 if GAME_SPEED == 1 else 1
+                    elif game_btn_rect.collidepoint(mx_real, my_real) and not wave_active:
                         wave_active = True
                         selected_placed_tower = None
-                    elif in_game_backpack_btn_rect.collidepoint(mx, my):
-                        STATE = "IN_GAME_BACKPACK"
+                    elif in_game_backpack_btn_rect.collidepoint(mx_real, my_real):
+                        STATE = "IN_GAME_BACKPACK";
                         selected_placed_tower = None
                     else:
                         clicked_in_popup = False
                         if selected_placed_tower:
-                            if upgrade_btn_rect.collidepoint(mx, my):
+                            if upgrade_btn_rect.collidepoint(mx_real, my_real):
                                 clicked_in_popup = True
                                 if money >= selected_placed_tower.upgrade_cost:
                                     money -= selected_placed_tower.upgrade_cost
                                     selected_placed_tower.upgrade()
-                            elif sell_btn_rect.collidepoint(mx, my):
+                            elif sell_btn_rect.collidepoint(mx_real, my_real):
                                 clicked_in_popup = True
                                 refund = int((selected_placed_tower.cost + (
                                     selected_placed_tower.upgrade_cost if selected_placed_tower.level > 1 else 0)) * 0.5)
@@ -834,14 +834,15 @@ def main():
                             selected_placed_tower = None
                             clicked_tower = None
                             for t in towers:
-                                if math.hypot(mx - t.x, my - t.y) < 20:
+                                if math.hypot(mx_real - t.x, my_real - t.y) < 20:
                                     clicked_tower = t
                                     break
 
                             if clicked_tower:
                                 selected_placed_tower = clicked_tower
-                            elif my < HEIGHT - PANEL_HEIGHT:
-                                grid_x, grid_y = (mx // TILE_SIZE) * TILE_SIZE + 20, (my // TILE_SIZE) * TILE_SIZE + 20
+                            elif my_real < HEIGHT - PANEL_HEIGHT:
+                                grid_x, grid_y = (mx_real // TILE_SIZE) * TILE_SIZE + 20, (
+                                            my_real // TILE_SIZE) * TILE_SIZE + 20
                                 if (grid_x, grid_y) not in occupied_cells and not is_on_path(grid_x,
                                                                                              grid_y) and not is_on_decoration(
                                         grid_x, grid_y):
@@ -850,16 +851,18 @@ def main():
                                         towers.append(Tower(grid_x, grid_y, selected_tower, dmg_mult, equipped_gadgets))
                                         occupied_cells.add((grid_x, grid_y))
                                         money -= cost
-                                        # Dust on build
                                         for _ in range(10): PARTICLES.append(Particle(grid_x, grid_y, (150, 150, 150)))
+                                        SCREEN_SHAKE = max(SCREEN_SHAKE, 3)
+
+                elif STATE == "PAUSED":
+                    if resume_btn_rect.collidepoint(mx, my):
+                        STATE = "GAME"
+                    elif game_to_menu_rect.collidepoint(mx, my):
+                        save_all(); STATE = "MENU"
 
                 elif STATE == "MENU_SHOP":
                     active_input = promo_rect.collidepoint(mx, my)
-                    if back_to_menu_rect_shop.collidepoint(mx, my):
-                        save_all()
-                        STATE = "MENU"
-                        active_input = False
-
+                    if back_to_menu_rect_shop.collidepoint(mx, my): save_all(); STATE = "MENU"; active_input = False
                     if tab_gadgets_rect.collidepoint(mx, my):
                         shop_tab = "GADGETS"
                     elif tab_boxes_rect.collidepoint(mx, my):
@@ -877,16 +880,16 @@ def main():
                                     save_all()
                     elif shop_tab == "BOXES":
                         if box_normal_rect.collidepoint(mx, my) and diamonds >= 500:
-                            diamonds -= 500
+                            diamonds -= 500;
                             current_box_type = "NORMAL"
                             won_item_type, won_item_id = get_random_item_from_box("NORMAL")
-                            anim_ticks = 0
+                            anim_ticks = 0;
                             STATE = "BOX_ANIMATION"
                         elif box_premium_rect.collidepoint(mx, my) and diamonds >= 2000:
-                            diamonds -= 2000
+                            diamonds -= 2000;
                             current_box_type = "PREMIUM"
                             won_item_type, won_item_id = get_random_item_from_box("PREMIUM")
-                            anim_ticks = 0
+                            anim_ticks = 0;
                             STATE = "BOX_ANIMATION"
 
                         if STATE == "BOX_ANIMATION":
@@ -900,10 +903,7 @@ def main():
                                 if not won_duplicate: unlocked_gadgets.append(won_item_id)
 
                 elif STATE == "MENU_BACKPACK":
-                    if back_to_menu_rect_bp.collidepoint(mx, my):
-                        save_all()
-                        STATE = "MENU"
-
+                    if back_to_menu_rect_bp.collidepoint(mx, my): save_all(); STATE = "MENU"
                     if tab_bp_towers_rect.collidepoint(mx, my):
                         menu_backpack_tab = "TOWERS"
                     elif tab_bp_gadgets_rect.collidepoint(mx, my):
@@ -922,11 +922,9 @@ def main():
                                         save_all()
                                 else:
                                     if t_type in equipped_towers:
-                                        if len(equipped_towers) > 1:
-                                            equipped_towers.remove(t_type)
-                                            save_all()
+                                        if len(equipped_towers) > 1: equipped_towers.remove(t_type); save_all()
                                     else:
-                                        equipped_towers.append(t_type)
+                                        equipped_towers.append(t_type);
                                         save_all()
                     elif menu_backpack_tab == "GADGETS":
                         for slot in gadget_slots:
@@ -944,7 +942,7 @@ def main():
                 elif STATE == "BOX_ANIMATION":
                     if anim_ticks > 150 and claim_btn_rect.collidepoint(mx, my):
                         if won_duplicate: diamonds += won_compensation
-                        save_all()
+                        save_all();
                         STATE = "MENU_SHOP"
 
                 elif STATE == "IN_GAME_BACKPACK":
@@ -953,53 +951,62 @@ def main():
                         rect = pygame.Rect(30 + (i % 5) * 148, 110 + (i // 5) * 145, 140, 135)
                         act_rect = pygame.Rect(rect.x + 10, rect.bottom - 25, rect.width - 20, 20)
                         if act_rect.collidepoint(mx, my) or rect.collidepoint(mx, my):
-                            selected_tower = t_type
+                            selected_tower = t_type;
                             STATE = "GAME"
 
                 elif STATE == "GAME_OVER":
-                    if game_over_menu_rect.collidepoint(mx, my):
-                        save_all()
-                        STATE = "MENU"
+                    if game_over_menu_rect.collidepoint(mx, my): save_all(); STATE = "MENU"
 
-        # --- Drawing States ---
+        if SCREEN_SHAKE > 0:
+            SCREEN_SHAKE -= 1
+        else:
+            SCREEN_SHAKE = 0
+
         if STATE == "MENU":
-            screen.fill((25, 25, 35))
-            screen.blit(font_title.render("TOWER DEFENSE", True, YELLOW), (WIDTH // 2 - 200, 60))
-            draw_diamond(screen, WIDTH // 2 - 35, 133, 20, 24)
-            screen.blit(font_small.render(f": {diamonds}", True, WHITE), (WIDTH // 2 - 15, 120))
+            display_surface.fill((25, 25, 35))
 
-            draw_interactive_button(screen, play_btn_rect, "START GAME", font_small, BTN_COLOR, BTN_HOVER,
+            title_text = font_title.render("TOWER DEFENSE", True, YELLOW)
+            display_surface.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, 60))
+
+            draw_diamond(display_surface, WIDTH // 2 - 35, 133, 20, 24)
+            display_surface.blit(font_small.render(f": {diamonds}", True, WHITE), (WIDTH // 2 - 15, 120))
+
+            draw_interactive_button(display_surface, play_btn_rect, "START GAME", font_small, BTN_COLOR, BTN_HOVER,
                                     play_btn_rect.collidepoint(mx, my))
-            draw_interactive_button(screen, menu_shop_btn_rect, "SHOP & BOXES", font_small, SHOP_COLOR, SHOP_HOVER,
-                                    menu_shop_btn_rect.collidepoint(mx, my))
-            draw_interactive_button(screen, menu_backpack_btn_rect, "BACKPACK", font_small, PURPLE, (170, 130, 240),
-                                    menu_backpack_btn_rect.collidepoint(mx, my))
-            draw_interactive_button(screen, exit_btn_rect, "EXIT", font_small, EXIT_COLOR, EXIT_HOVER,
+            draw_interactive_button(display_surface, menu_shop_btn_rect, "SHOP & BOXES", font_small, SHOP_COLOR,
+                                    SHOP_HOVER, menu_shop_btn_rect.collidepoint(mx, my))
+            draw_interactive_button(display_surface, menu_backpack_btn_rect, "BACKPACK", font_small, PURPLE,
+                                    (170, 130, 240), menu_backpack_btn_rect.collidepoint(mx, my))
+            draw_interactive_button(display_surface, exit_btn_rect, "EXIT", font_small, EXIT_COLOR, EXIT_HOVER,
                                     exit_btn_rect.collidepoint(mx, my))
 
         elif STATE == "GAME":
-            draw_map(screen)
-            draw_interactive_button(screen, game_to_menu_rect, "MENU", font_mini, EXIT_COLOR, EXIT_HOVER,
-                                    game_to_menu_rect.collidepoint(mx, my))
+            draw_map(display_surface)
+            draw_interactive_button(display_surface, game_to_menu_rect, "MENU", font_mini, EXIT_COLOR, EXIT_HOVER,
+                                    game_to_menu_rect.collidepoint(mx_real, my_real))
+            draw_interactive_button(display_surface, pause_btn_rect, "PAUSE", font_mini, (100, 100, 100),
+                                    (150, 150, 150), pause_btn_rect.collidepoint(mx_real, my_real))
 
             map_title = font_small.render(f"MAP: {CURRENT_MAP['name']}", True, WHITE)
-            screen.blit(map_title, (WIDTH // 2 - map_title.get_width() // 2, 20))
+            display_surface.blit(map_title, (WIDTH // 2 - map_title.get_width() // 2, 20))
 
-            # Range highlight when building
-            if my < HEIGHT - PANEL_HEIGHT and not selected_placed_tower:
-                grid_x, grid_y = (mx // TILE_SIZE) * TILE_SIZE + 20, (my // TILE_SIZE) * TILE_SIZE + 20
+            if not wave_active and wave % 5 == 0:
+                boss_warning = font_large.render("WARNING: BOSS INCOMING!", True, RED)
+                display_surface.blit(boss_warning, (WIDTH // 2 - boss_warning.get_width() // 2, 60))
+
+            if my_real < HEIGHT - PANEL_HEIGHT and not selected_placed_tower:
+                grid_x, grid_y = (mx_real // TILE_SIZE) * TILE_SIZE + 20, (my_real // TILE_SIZE) * TILE_SIZE + 20
                 if (grid_x, grid_y) in occupied_cells or is_on_path(grid_x, grid_y) or is_on_decoration(grid_x, grid_y):
-                    pygame.draw.circle(screen, (255, 0, 0, 100), (grid_x, grid_y), 20)
+                    pygame.draw.circle(display_surface, (255, 0, 0, 100), (grid_x, grid_y), 20)
                 else:
                     rng = TOWER_TYPES[selected_tower]["range"]
                     surface_alpha = pygame.Surface((rng * 2, rng * 2), pygame.SRCALPHA)
                     pygame.draw.circle(surface_alpha, (255, 255, 255, 60), (rng, rng), rng)
-                    screen.blit(surface_alpha, (grid_x - rng, grid_y - rng))
+                    display_surface.blit(surface_alpha, (grid_x - rng, grid_y - rng))
 
-            # Wave logic
             if wave_active:
                 if enemies_spawned < (5 + wave * 3):
-                    spawn_timer += 1
+                    spawn_timer += 1 * GAME_SPEED
                     if spawn_timer >= max(10, 50 - wave * 2):
                         enemies.append(Enemy(wave))
                         enemies_spawned += 1
@@ -1011,18 +1018,17 @@ def main():
                     reward_money = 100 + (wave * 10)
                     money += reward_money
                     diamonds += 20 + wave
-                    # Show bonus on screen
                     FLOATING_TEXTS.append(
                         FloatingText(WIDTH // 2, HEIGHT // 2, f"Wave cleared! +${reward_money}", YELLOW))
                     save_all()
 
-            # Update entities
             for e in enemies[:]:
                 e.update()
-                e.draw(screen)
+                e.draw(display_surface)
                 if e.target_waypoint >= len(CURRENT_MAP["path"]):
                     enemies.remove(e)
                     lives -= 1
+                    SCREEN_SHAKE = max(SCREEN_SHAKE, 15)
                     if lives <= 0: STATE = "GAME_OVER"
                 elif e.health <= 0:
                     enemies.remove(e)
@@ -1030,67 +1036,91 @@ def main():
                     diamonds += 2
                     FLOATING_TEXTS.append(FloatingText(e.x, e.y, f"+${e.reward}", YELLOW))
                     for _ in range(5): PARTICLES.append(Particle(e.x, e.y, e.color))
+                    if e.type == "BOSS": SCREEN_SHAKE = max(SCREEN_SHAKE, 20)
 
             for t in towers:
-                t.attack(enemies, screen)
-                t.draw(screen)
+                t.attack(enemies, display_surface)
+                t.draw(display_surface)
 
             for p in PARTICLES[:]:
                 p.update()
-                p.draw(screen)
+                p.draw(display_surface)
                 if p.timer <= 0: PARTICLES.remove(p)
 
             for ft in FLOATING_TEXTS[:]:
                 ft.update()
-                ft.draw(screen)
+                ft.draw(display_surface)
                 if ft.timer <= 0: FLOATING_TEXTS.remove(ft)
 
-            # Tower upgrade menu
             if selected_placed_tower:
                 t = selected_placed_tower
                 surface_alpha = pygame.Surface((t.range * 2, t.range * 2), pygame.SRCALPHA)
                 pygame.draw.circle(surface_alpha, (255, 255, 255, 60), (int(t.range), int(t.range)), int(t.range))
-                screen.blit(surface_alpha, (t.x - t.range, t.y - t.range))
+                display_surface.blit(surface_alpha, (t.x - t.range, t.y - t.range))
 
                 px, py = upgrade_btn_rect.x - 10, upgrade_btn_rect.y - 25
-                pygame.draw.rect(screen, (40, 40, 50), (px, py, 140, 90), border_radius=10)
-                pygame.draw.rect(screen, WHITE, (px, py, 140, 90), 2, border_radius=10)
-                screen.blit(font_mini.render(f"Level: {t.level}", True, WHITE), (px + 10, py + 5))
+                pygame.draw.rect(display_surface, (40, 40, 50), (px, py, 140, 90), border_radius=10)
+                pygame.draw.rect(display_surface, WHITE, (px, py, 140, 90), 2, border_radius=10)
+                display_surface.blit(font_mini.render(f"Level: {t.level}", True, WHITE), (px + 10, py + 5))
 
                 upg_color = BTN_COLOR if money >= t.upgrade_cost else BTN_DISABLED
-                draw_interactive_button(screen, upgrade_btn_rect, f"Upgrade: ${t.upgrade_cost}", font_mini, upg_color,
-                                        BTN_HOVER if money >= t.upgrade_cost else BTN_DISABLED,
-                                        upgrade_btn_rect.collidepoint(mx, my))
-                draw_interactive_button(screen, sell_btn_rect, "Sell", font_mini, EXIT_COLOR, EXIT_HOVER,
-                                        sell_btn_rect.collidepoint(mx, my))
+                draw_interactive_button(display_surface, upgrade_btn_rect, f"Upgrade: ${t.upgrade_cost}", font_mini,
+                                        upg_color, BTN_HOVER if money >= t.upgrade_cost else BTN_DISABLED,
+                                        upgrade_btn_rect.collidepoint(mx_real, my_real))
+                draw_interactive_button(display_surface, sell_btn_rect, "Sell", font_mini, EXIT_COLOR, EXIT_HOVER,
+                                        sell_btn_rect.collidepoint(mx_real, my_real))
 
-            # Bottom panel
-            pygame.draw.rect(screen, PANEL_BG, (0, HEIGHT - PANEL_HEIGHT, WIDTH, PANEL_HEIGHT))
-            pygame.draw.line(screen, (80, 80, 90), (0, HEIGHT - PANEL_HEIGHT), (WIDTH, HEIGHT - PANEL_HEIGHT), 4)
+            pygame.draw.rect(display_surface, PANEL_BG, (0, HEIGHT - PANEL_HEIGHT, WIDTH, PANEL_HEIGHT))
+            pygame.draw.line(display_surface, (80, 80, 90), (0, HEIGHT - PANEL_HEIGHT), (WIDTH, HEIGHT - PANEL_HEIGHT),
+                             4)
 
-            screen.blit(font_large.render(f"${money}", True, YELLOW), (20, HEIGHT - 80))
-            screen.blit(font_small.render(f"Wave: {wave}", True, WHITE), (20, HEIGHT - 35))
-            screen.blit(font_large.render(f"♥ {lives}", True, RED), (150, HEIGHT - 80))
-            screen.blit(font_small.render(f"Tower: {TOWER_TYPES[selected_tower]['name']}", True, WHITE),
-                        (150, HEIGHT - 35))
+            display_surface.blit(font_large.render(f"${money}", True, YELLOW), (20, HEIGHT - 80))
+            display_surface.blit(font_small.render(f"Wave: {wave}", True, WHITE), (20, HEIGHT - 35))
+            display_surface.blit(font_large.render(f"HP: {lives}", True, RED), (150, HEIGHT - 80))
+            display_surface.blit(font_small.render(f"Tower: {TOWER_TYPES[selected_tower]['name']}", True, WHITE),
+                                 (150, HEIGHT - 35))
 
-            draw_interactive_button(screen, in_game_backpack_btn_rect, "BASE", font_small, PURPLE, (170, 130, 240),
-                                    in_game_backpack_btn_rect.collidepoint(mx, my))
-            draw_interactive_button(screen, game_btn_rect, "ATTACK!" if wave_active else "NEXT WAVE", font_small,
-                                    BTN_COLOR if not wave_active else BTN_DISABLED, BTN_HOVER,
-                                    game_btn_rect.collidepoint(mx, my))
+            draw_interactive_button(display_surface, in_game_backpack_btn_rect, "BASE", font_small, PURPLE,
+                                    (170, 130, 240), in_game_backpack_btn_rect.collidepoint(mx_real, my_real))
+
+            speed_col = (200, 150, 0) if GAME_SPEED == 2 else (100, 100, 100)
+            draw_interactive_button(display_surface, speed_btn_rect, "x2", font_small, speed_col, (255, 200, 0),
+                                    speed_btn_rect.collidepoint(mx_real, my_real))
+
+            draw_interactive_button(display_surface, game_btn_rect, "ATTACK!" if not wave_active else "WAVE ACTIVE",
+                                    font_small, BTN_COLOR if not wave_active else BTN_DISABLED, BTN_HOVER,
+                                    game_btn_rect.collidepoint(mx_real, my_real))
+
+        elif STATE == "PAUSED":
+            s = pygame.Surface((WIDTH, HEIGHT))
+            s.set_alpha(128)
+            s.fill(BLACK)
+            display_surface.blit(s, (0, 0))
+
+            pause_text = font_title.render("PAUSED", True, WHITE)
+            display_surface.blit(pause_text, (WIDTH // 2 - pause_text.get_width() // 2, 150))
+
+            draw_interactive_button(display_surface, resume_btn_rect, "RESUME", font_small, BTN_COLOR, BTN_HOVER,
+                                    resume_btn_rect.collidepoint(mx, my))
+
+            menu_btn_rect_paused = pygame.Rect(WIDTH // 2 - 100, 320, 200, 50)
+            draw_interactive_button(display_surface, menu_btn_rect_paused, "MAIN MENU", font_small, EXIT_COLOR,
+                                    EXIT_HOVER, menu_btn_rect_paused.collidepoint(mx, my))
+            if event.type == pygame.MOUSEBUTTONDOWN and menu_btn_rect_paused.collidepoint(mx, my):
+                save_all()
+                STATE = "MENU"
 
         elif STATE == "MENU_SHOP":
-            screen.fill((25, 25, 35))
-            screen.blit(font_title.render("SHOP", True, YELLOW), (WIDTH // 2 - 80, 10))
-            draw_diamond(screen, 30, 30, 20, 24)
-            screen.blit(font_small.render(f" : {diamonds}", True, WHITE), (45, 17))
-
-            draw_interactive_button(screen, tab_gadgets_rect, "GADGETS / UPGRADES", font_tiny,
+            display_surface.fill((25, 25, 35))
+            shop_title = font_title.render("SHOP", True, YELLOW)
+            display_surface.blit(shop_title, (WIDTH // 2 - shop_title.get_width() // 2, 10))
+            draw_diamond(display_surface, 30, 30, 20, 24)
+            display_surface.blit(font_small.render(f" : {diamonds}", True, WHITE), (45, 17))
+            draw_interactive_button(display_surface, tab_gadgets_rect, "GADGETS / UPGRADES", font_tiny,
                                     SHOP_COLOR if shop_tab == "GADGETS" else (60, 60, 75),
                                     SHOP_HOVER if shop_tab == "GADGETS" else (100, 100, 120),
                                     tab_gadgets_rect.collidepoint(mx, my))
-            draw_interactive_button(screen, tab_boxes_rect, "BOXES (GACHA)", font_mini,
+            draw_interactive_button(display_surface, tab_boxes_rect, "BOXES (GACHA)", font_mini,
                                     PURPLE if shop_tab == "BOXES" else (60, 60, 75),
                                     (170, 130, 240) if shop_tab == "BOXES" else (100, 100, 120),
                                     tab_boxes_rect.collidepoint(mx, my))
@@ -1099,67 +1129,66 @@ def main():
                 for slot in gadget_slots:
                     rect, g_type = slot["rect"], slot["type"]
                     stats = GADGET_TYPES[g_type]
-                    pygame.draw.rect(screen, (45, 45, 55), rect, border_radius=10)
-                    pygame.draw.rect(screen, stats["color"], rect, 2, border_radius=10)
-                    screen.blit(font_mini.render(stats["name"], True, WHITE), (rect.x + 8, rect.y + 6))
-                    screen.blit(font_tiny.render(stats["desc"], True, (200, 200, 200)), (rect.x + 8, rect.y + 26))
-
+                    pygame.draw.rect(display_surface, (45, 45, 55), rect, border_radius=10)
+                    pygame.draw.rect(display_surface, stats["color"], rect, 2, border_radius=10)
+                    display_surface.blit(font_mini.render(stats["name"], True, WHITE), (rect.x + 8, rect.y + 6))
+                    display_surface.blit(font_tiny.render(stats["desc"], True, (200, 200, 200)),
+                                         (rect.x + 8, rect.y + 26))
                     act_rect = pygame.Rect(rect.x + 8, rect.bottom - 26, rect.width - 16, 20)
                     act_hover = act_rect.collidepoint(mx, my)
-
                     if g_type not in unlocked_gadgets:
                         can_buy = diamonds >= stats["unlock_cost"]
-                        draw_interactive_button(screen, act_rect, f"BUY ♦ {stats['unlock_cost']}", font_tiny,
+                        draw_interactive_button(display_surface, act_rect, f"BUY ♦ {stats['unlock_cost']}", font_tiny,
                                                 BTN_COLOR if can_buy else RED, BTN_HOVER if can_buy else RED, act_hover)
                     else:
-                        draw_interactive_button(screen, act_rect, "BOUGHT", font_tiny, (100, 100, 100),
+                        draw_interactive_button(display_surface, act_rect, "BOUGHT", font_tiny, (100, 100, 100),
                                                 (100, 100, 100), False)
-
             elif shop_tab == "BOXES":
-                pygame.draw.rect(screen, (100, 70, 40), box_normal_rect, border_radius=20)
-                pygame.draw.rect(screen, WHITE, box_normal_rect, 4, border_radius=20)
+                pygame.draw.rect(display_surface, (100, 70, 40), box_normal_rect, border_radius=20)
+                pygame.draw.rect(display_surface, WHITE, box_normal_rect, 4, border_radius=20)
                 n_title = font_small.render("NORMAL", True, WHITE)
-                screen.blit(n_title, (box_normal_rect.centerx - n_title.get_width() // 2, box_normal_rect.y + 20))
-                screen.blit(font_tiny.render("Epic Chance: 2%", True, (200, 200, 200)),
-                            (box_normal_rect.x + 20, box_normal_rect.y + 70))
+                display_surface.blit(n_title,
+                                     (box_normal_rect.centerx - n_title.get_width() // 2, box_normal_rect.y + 20))
+                display_surface.blit(font_tiny.render("Epic Chance: 2%", True, (200, 200, 200)),
+                                     (box_normal_rect.x + 20, box_normal_rect.y + 70))
                 btn_n = pygame.Rect(box_normal_rect.x + 20, box_normal_rect.bottom - 60, 160, 40)
-                n_color = BTN_COLOR if diamonds >= 500 else BTN_DISABLED
-                draw_interactive_button(screen, btn_n, "OPEN (500♦)", font_mini, n_color,
+                draw_interactive_button(display_surface, btn_n, "OPEN (500♦)", font_mini,
+                                        BTN_COLOR if diamonds >= 500 else BTN_DISABLED,
                                         BTN_HOVER if diamonds >= 500 else BTN_DISABLED, btn_n.collidepoint(mx, my))
 
-                pygame.draw.rect(screen, (80, 20, 120), box_premium_rect, border_radius=20)
-                pygame.draw.rect(screen, GOLD, box_premium_rect, 3, border_radius=20)
+                pygame.draw.rect(display_surface, (80, 20, 120), box_premium_rect, border_radius=20)
+                pygame.draw.rect(display_surface, GOLD, box_premium_rect, 3, border_radius=20)
                 p_title = font_small.render("PREMIUM", True, GOLD)
-                screen.blit(p_title, (box_premium_rect.centerx - p_title.get_width() // 2, box_premium_rect.y + 20))
-                screen.blit(font_tiny.render("Legendary Chance: 25%", True, GOLD),
-                            (box_premium_rect.x + 20, box_premium_rect.y + 70))
+                display_surface.blit(p_title,
+                                     (box_premium_rect.centerx - p_title.get_width() // 2, box_premium_rect.y + 20))
+                display_surface.blit(font_tiny.render("Legendary Chance: 25%", True, GOLD),
+                                     (box_premium_rect.x + 20, box_premium_rect.y + 70))
                 btn_p = pygame.Rect(box_premium_rect.x + 20, box_premium_rect.bottom - 60, 160, 40)
-                p_color = PURPLE if diamonds >= 2000 else BTN_DISABLED
-                draw_interactive_button(screen, btn_p, "OPEN (2000♦)", font_mini, p_color,
+                draw_interactive_button(display_surface, btn_p, "OPEN (2000♦)", font_mini,
+                                        PURPLE if diamonds >= 2000 else BTN_DISABLED,
                                         (170, 130, 240) if diamonds >= 2000 else BTN_DISABLED,
                                         btn_p.collidepoint(mx, my))
 
             promo_bg = (80, 80, 80) if active_input else (50, 50, 60)
-            pygame.draw.rect(screen, promo_bg, promo_rect, border_radius=10)
-            pygame.draw.rect(screen, YELLOW if active_input else WHITE, promo_rect, 3, border_radius=10)
+            pygame.draw.rect(display_surface, promo_bg, promo_rect, border_radius=10)
+            pygame.draw.rect(display_surface, YELLOW if active_input else WHITE, promo_rect, 3, border_radius=10)
             p_text = input_text if input_text else ("ENTER..." if active_input else "PROMO CODE")
             p_surf = font_small.render(p_text, True, WHITE)
-            screen.blit(p_surf, p_surf.get_rect(center=promo_rect.center))
-
-            draw_interactive_button(screen, back_to_menu_rect_shop, "BACK", font_small, (100, 100, 100),
+            display_surface.blit(p_surf, p_surf.get_rect(center=promo_rect.center))
+            draw_interactive_button(display_surface, back_to_menu_rect_shop, "BACK", font_small, (100, 100, 100),
                                     (130, 130, 130), back_to_menu_rect_shop.collidepoint(mx, my))
 
         elif STATE == "MENU_BACKPACK":
-            screen.fill((25, 25, 35))
-            screen.blit(font_title.render("INVENTORY BACKPACK", True, PURPLE), (WIDTH // 2 - 270, 10))
-            draw_diamond(screen, 30, 30, 20, 24)
-            screen.blit(font_small.render(f" : {diamonds}", True, WHITE), (45, 17))
-
-            draw_interactive_button(screen, tab_bp_towers_rect, "TOWERS", font_mini,
+            display_surface.fill((25, 25, 35))
+            bp_title = font_title.render("INVENTORY BACKPACK", True, PURPLE)
+            display_surface.blit(bp_title, (WIDTH // 2 - bp_title.get_width() // 2, 10))
+            draw_diamond(display_surface, 30, 30, 20, 24)
+            display_surface.blit(font_small.render(f" : {diamonds}", True, WHITE), (45, 17))
+            draw_interactive_button(display_surface, tab_bp_towers_rect, "TOWERS", font_mini,
                                     PURPLE if menu_backpack_tab == "TOWERS" else (60, 60, 75),
                                     (170, 130, 240) if menu_backpack_tab == "TOWERS" else (100, 100, 120),
                                     tab_bp_towers_rect.collidepoint(mx, my))
-            draw_interactive_button(screen, tab_bp_gadgets_rect, "ACTIVE GADGETS", font_mini,
+            draw_interactive_button(display_surface, tab_bp_gadgets_rect, "ACTIVE GADGETS", font_mini,
                                     SHOP_COLOR if menu_backpack_tab == "GADGETS" else (60, 60, 75),
                                     SHOP_HOVER if menu_backpack_tab == "GADGETS" else (100, 100, 120),
                                     tab_bp_gadgets_rect.collidepoint(mx, my))
@@ -1169,159 +1198,141 @@ def main():
                     rect, t_type = slot["rect"], slot["type"]
                     stats = TOWER_TYPES[t_type]
                     is_hover = rect.collidepoint(mx, my)
-
                     bg_color = (60, 60, 75) if is_hover else (45, 45, 55)
-                    rarity_color = RARITY_COLORS[stats["rarity"]]
                     border_color = BTN_COLOR if t_type in equipped_towers else (
-                        rarity_color if t_type in unlocked_towers else RED)
-
-                    pygame.draw.rect(screen, bg_color, rect, border_radius=15)
-                    pygame.draw.rect(screen, border_color, rect, 3, border_radius=15)
-
+                        RARITY_COLORS[stats["rarity"]] if t_type in unlocked_towers else RED)
+                    pygame.draw.rect(display_surface, bg_color, rect, border_radius=15)
+                    pygame.draw.rect(display_surface, border_color, rect, 3, border_radius=15)
                     name_s = font_mini.render(stats["name"], True, WHITE)
-                    screen.blit(name_s, (rect.centerx - name_s.get_width() // 2, rect.y + 5))
-
+                    display_surface.blit(name_s, (rect.centerx - name_s.get_width() // 2, rect.y + 5))
                     if t_type in unlocked_towers:
-                        Tower(rect.centerx, rect.y + 45, t_type).draw(screen)
-                        screen.blit(font_tiny.render(f"Damage: {stats['damage']}", True, (200, 200, 200)),
-                                    (rect.x + 10, rect.y + 75))
-                        screen.blit(font_tiny.render(f"Range: {stats['range']}", True, (200, 200, 200)),
-                                    (rect.x + 10, rect.y + 90))
+                        Tower(rect.centerx, rect.y + 45, t_type).draw(display_surface)
+                        display_surface.blit(font_tiny.render(f"Damage: {stats['damage']}", True, (200, 200, 200)),
+                                             (rect.x + 10, rect.y + 75))
+                        display_surface.blit(font_tiny.render(f"Range: {stats['range']}", True, (200, 200, 200)),
+                                             (rect.x + 10, rect.y + 90))
                     else:
-                        screen.blit(font_large.render("?", True, RED), (rect.centerx - 10, rect.y + 30))
-
+                        quest_t = font_large.render("?", True, RED)
+                        display_surface.blit(quest_t, (rect.centerx - quest_t.get_width() // 2, rect.y + 30))
                     act_rect = pygame.Rect(rect.x + 10, rect.bottom - 25, rect.width - 20, 20)
-                    act_hover = act_rect.collidepoint(mx, my)
-
                     if t_type not in unlocked_towers:
                         act_text, act_col, act_hov = f"BUY ♦ {stats['unlock_cost']}", EXIT_COLOR, EXIT_HOVER
                     elif t_type in equipped_towers:
                         act_text, act_col, act_hov = "UNEQUIP", BTN_COLOR, BTN_HOVER
                     else:
                         act_text, act_col, act_hov = "EQUIP", SHOP_COLOR, SHOP_HOVER
-
-                    draw_interactive_button(screen, act_rect, act_text, font_tiny, act_col, act_hov, act_hover)
-
+                    draw_interactive_button(display_surface, act_rect, act_text, font_tiny, act_col, act_hov,
+                                            act_rect.collidepoint(mx, my))
             elif menu_backpack_tab == "GADGETS":
                 for slot in gadget_slots:
                     rect, g_type = slot["rect"], slot["type"]
                     stats = GADGET_TYPES[g_type]
-
                     if g_type in unlocked_gadgets:
-                        pygame.draw.rect(screen, (45, 45, 55), rect, border_radius=10)
-                        border_col = BTN_COLOR if g_type in equipped_gadgets else stats["color"]
-                        pygame.draw.rect(screen, border_col, rect, 4 if g_type in equipped_gadgets else 2,
-                                         border_radius=10)
-                        screen.blit(font_mini.render(stats["name"], True, WHITE), (rect.x + 8, rect.y + 6))
-                        screen.blit(font_tiny.render(stats["desc"], True, (200, 200, 200)), (rect.x + 8, rect.y + 26))
-
+                        pygame.draw.rect(display_surface, (45, 45, 55), rect, border_radius=10)
+                        pygame.draw.rect(display_surface, BTN_COLOR if g_type in equipped_gadgets else stats["color"],
+                                         rect, 4 if g_type in equipped_gadgets else 2, border_radius=10)
+                        display_surface.blit(font_mini.render(stats["name"], True, WHITE), (rect.x + 8, rect.y + 6))
+                        display_surface.blit(font_tiny.render(stats["desc"], True, (200, 200, 200)),
+                                             (rect.x + 8, rect.y + 26))
                         act_rect = pygame.Rect(rect.x + 8, rect.bottom - 26, rect.width - 16, 20)
-                        act_hover = act_rect.collidepoint(mx, my)
-
                         if g_type in equipped_gadgets:
-                            draw_interactive_button(screen, act_rect, "DISABLE", font_tiny, EXIT_COLOR, EXIT_HOVER,
-                                                    act_hover)
+                            draw_interactive_button(display_surface, act_rect, "DISABLE", font_tiny, EXIT_COLOR,
+                                                    EXIT_HOVER, act_rect.collidepoint(mx, my))
                         else:
-                            draw_interactive_button(screen, act_rect, "ENABLE", font_tiny, BTN_COLOR, BTN_HOVER,
-                                                    act_hover)
+                            draw_interactive_button(display_surface, act_rect, "ENABLE", font_tiny, BTN_COLOR,
+                                                    BTN_HOVER, act_rect.collidepoint(mx, my))
                     else:
-                        pygame.draw.rect(screen, (30, 30, 40), rect, border_radius=10)
-                        screen.blit(font_mini.render("???", True, (100, 100, 100)),
-                                    (rect.centerx - 15, rect.centery - 10))
+                        pygame.draw.rect(display_surface, (30, 30, 40), rect, border_radius=10)
+                        display_surface.blit(font_mini.render("???", True, (100, 100, 100)),
+                                             (rect.centerx - 15, rect.centery - 10))
 
-            draw_interactive_button(screen, back_to_menu_rect_bp, "MAIN MENU", font_small, (100, 100, 100),
+            draw_interactive_button(display_surface, back_to_menu_rect_bp, "MAIN MENU", font_small, (100, 100, 100),
                                     (130, 130, 130), back_to_menu_rect_bp.collidepoint(mx, my))
 
         elif STATE == "BOX_ANIMATION":
             anim_ticks += 1
-            screen.fill((20, 20, 30))
+            display_surface.fill((20, 20, 30))
             cx, cy = WIDTH // 2, HEIGHT // 2 - 50
-
             if anim_ticks < 100:
                 shake_x = math.sin(anim_ticks) * 8 * (anim_ticks / 100)
                 box_color = (100, 70, 40) if current_box_type == "NORMAL" else (80, 20, 120)
                 b_rect = pygame.Rect(cx - 75 + shake_x, cy - 75, 150, 150)
-                pygame.draw.rect(screen, box_color, b_rect, border_radius=15)
-                pygame.draw.rect(screen, WHITE if current_box_type == "NORMAL" else GOLD, b_rect, 5, border_radius=15)
-                screen.blit(font_large.render("?", True, WHITE), (cx - 10 + shake_x, cy - 20))
-
+                pygame.draw.rect(display_surface, box_color, b_rect, border_radius=15)
+                pygame.draw.rect(display_surface, WHITE if current_box_type == "NORMAL" else GOLD, b_rect, 5,
+                                 border_radius=15)
+                quest_t2 = font_large.render("?", True, WHITE)
+                display_surface.blit(quest_t2, (cx - quest_t2.get_width() // 2 + shake_x, cy - 20))
             elif anim_ticks < 150:
                 radius = (anim_ticks - 100) * 15
-                pygame.draw.circle(screen, WHITE, (cx, cy), int(radius))
-
+                pygame.draw.circle(display_surface, WHITE, (cx, cy), int(radius))
             else:
                 stats = TOWER_TYPES[won_item_id] if won_item_type == "TOWER" else GADGET_TYPES[won_item_id]
                 rarity_col = RARITY_COLORS[stats["rarity"]]
-                pygame.draw.circle(screen, rarity_col, (cx, cy), 120, 20)
-
+                pygame.draw.circle(display_surface, rarity_col, (cx, cy), 120, 20)
                 card_rect = pygame.Rect(cx - 100, cy - 120, 200, 240)
-                pygame.draw.rect(screen, (40, 40, 50), card_rect, border_radius=20)
-                pygame.draw.rect(screen, rarity_col, card_rect, 5, border_radius=20)
-
+                pygame.draw.rect(display_surface, (40, 40, 50), card_rect, border_radius=20)
+                pygame.draw.rect(display_surface, rarity_col, card_rect, 5, border_radius=20)
                 t_title = font_large.render(stats["name"], True, WHITE)
-                screen.blit(t_title, (cx - t_title.get_width() // 2, card_rect.y + 20))
+                display_surface.blit(t_title, (cx - t_title.get_width() // 2, card_rect.y + 20))
                 t_rarity = font_small.render(stats["rarity"], True, rarity_col)
-                screen.blit(t_rarity, (cx - t_rarity.get_width() // 2, card_rect.y + 60))
-
+                display_surface.blit(t_rarity, (cx - t_rarity.get_width() // 2, card_rect.y + 60))
                 if won_item_type == "TOWER":
-                    Tower(cx, cy + 30, won_item_id).draw(screen)
+                    Tower(cx, cy + 30, won_item_id).draw(display_surface)
                 else:
-                    pygame.draw.rect(screen, stats["color"], (cx - 40, cy, 80, 50), border_radius=10)
-                    pygame.draw.rect(screen, WHITE, (cx - 40, cy, 80, 50), 3, border_radius=10)
+                    pygame.draw.rect(display_surface, stats["color"], (cx - 40, cy, 80, 50), border_radius=10)
+                    pygame.draw.rect(display_surface, WHITE, (cx - 40, cy, 80, 50), 3, border_radius=10)
                     g_icon_text = font_mini.render("GADGET", True, WHITE)
-                    screen.blit(g_icon_text, (cx - g_icon_text.get_width() // 2, cy + 15))
-
+                    display_surface.blit(g_icon_text, (cx - g_icon_text.get_width() // 2, cy + 15))
                 if won_duplicate:
                     dup_text = font_small.render("DUPLICATE!", True, RED)
                     comp_text = font_mini.render(f"Compensation: +{won_compensation} ♦", True, YELLOW)
-                    screen.blit(dup_text, (cx - dup_text.get_width() // 2, card_rect.bottom + 20))
-                    screen.blit(comp_text, (cx - comp_text.get_width() // 2, card_rect.bottom + 50))
+                    display_surface.blit(dup_text, (cx - dup_text.get_width() // 2, card_rect.bottom + 20))
+                    display_surface.blit(comp_text, (cx - comp_text.get_width() // 2, card_rect.bottom + 50))
                 else:
                     msg = "NEW TOWER!" if won_item_type == "TOWER" else "NEW GADGET!"
                     new_text = font_small.render(msg, True, (50, 255, 50))
-                    screen.blit(new_text, (cx - new_text.get_width() // 2, card_rect.bottom + 20))
-
-                draw_interactive_button(screen, claim_btn_rect, "CLAIM", font_small, BTN_COLOR, BTN_HOVER,
+                    display_surface.blit(new_text, (cx - new_text.get_width() // 2, card_rect.bottom + 20))
+                draw_interactive_button(display_surface, claim_btn_rect, "CLAIM", font_small, BTN_COLOR, BTN_HOVER,
                                         claim_btn_rect.collidepoint(mx, my))
 
         elif STATE == "IN_GAME_BACKPACK":
-            screen.fill((25, 25, 35))
-            screen.blit(font_title.render("CHOOSE TOWER TO BUILD", True, PURPLE), (WIDTH // 2 - 320, 20))
+            display_surface.fill((25, 25, 35))
+            igb_title = font_title.render("CHOOSE TOWER TO BUILD", True, PURPLE)
+            display_surface.blit(igb_title, (WIDTH // 2 - igb_title.get_width() // 2, 20))
             for i, t_type in enumerate(equipped_towers):
                 rect = pygame.Rect(30 + (i % 5) * 148, 110 + (i // 5) * 145, 140, 135)
                 rarity_color = RARITY_COLORS[TOWER_TYPES[t_type]["rarity"]]
-                pygame.draw.rect(screen, (60, 60, 75) if rect.collidepoint(mx, my) else (45, 45, 55), rect,
+                pygame.draw.rect(display_surface, (60, 60, 75) if rect.collidepoint(mx, my) else (45, 45, 55), rect,
                                  border_radius=15)
-                pygame.draw.rect(screen, YELLOW if selected_tower == t_type else rarity_color, rect,
+                pygame.draw.rect(display_surface, YELLOW if selected_tower == t_type else rarity_color, rect,
                                  4 if selected_tower == t_type else 2, border_radius=15)
-
-                Tower(rect.centerx, rect.y + 45, t_type).draw(screen)
+                Tower(rect.centerx, rect.y + 45, t_type).draw(display_surface)
                 name_s = font_mini.render(TOWER_TYPES[t_type]["name"], True, WHITE)
-                screen.blit(name_s, (rect.centerx - name_s.get_width() // 2, rect.y + 70))
-
+                display_surface.blit(name_s, (rect.centerx - name_s.get_width() // 2, rect.y + 70))
                 act_rect = pygame.Rect(rect.x + 10, rect.bottom - 25, rect.width - 20, 20)
                 act_hover = act_rect.collidepoint(mx, my)
-
                 if selected_tower == t_type:
-                    draw_interactive_button(screen, act_rect, "SELECTED", font_tiny, BTN_COLOR, BTN_HOVER, act_hover)
+                    draw_interactive_button(display_surface, act_rect, "SELECTED", font_tiny, BTN_COLOR, BTN_HOVER,
+                                            act_hover)
                 else:
-                    draw_interactive_button(screen, act_rect, f"SELECT: ${TOWER_TYPES[t_type]['cost']}", font_tiny,
-                                            SHOP_COLOR, SHOP_HOVER, act_hover)
-
-            draw_interactive_button(screen, back_to_game_rect, "RETURN TO BATTLE", font_small, EXIT_COLOR, EXIT_HOVER,
-                                    back_to_game_rect.collidepoint(mx, my))
+                    draw_interactive_button(display_surface, act_rect, f"SELECT: ${TOWER_TYPES[t_type]['cost']}",
+                                            font_tiny, SHOP_COLOR, SHOP_HOVER, act_hover)
+            draw_interactive_button(display_surface, back_to_game_rect, "RETURN TO BATTLE", font_small, EXIT_COLOR,
+                                    EXIT_HOVER, back_to_game_rect.collidepoint(mx, my))
 
         elif STATE == "GAME_OVER":
-            screen.fill((30, 0, 0))
+            display_surface.fill((30, 0, 0))
             game_over_text = font_title.render("YOU LOST!", True, RED)
             wave_text = font_large.render(f"You reached wave: {wave}", True, WHITE)
-            screen.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 3 - 50))
-            screen.blit(wave_text, (WIDTH // 2 - wave_text.get_width() // 2, HEIGHT // 2 - 20))
-            draw_interactive_button(screen, game_over_menu_rect, "MAIN MENU", font_small, EXIT_COLOR, EXIT_HOVER,
-                                    game_over_menu_rect.collidepoint(mx, my))
+            display_surface.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 3 - 50))
+            display_surface.blit(wave_text, (WIDTH // 2 - wave_text.get_width() // 2, HEIGHT // 2 - 20))
+            draw_interactive_button(display_surface, game_over_menu_rect, "MAIN MENU", font_small, EXIT_COLOR,
+                                    EXIT_HOVER, game_over_menu_rect.collidepoint(mx, my))
 
+        screen.blit(display_surface, (shake_offset_x, shake_offset_y))
         pygame.display.flip()
         clock.tick(60)
+
     pygame.quit()
 
 
