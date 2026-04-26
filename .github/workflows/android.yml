@@ -7,6 +7,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+
       - name: Install deps
         run: |
           sudo apt update
@@ -16,7 +22,13 @@ jobs:
 
       - name: Build APK
         run: |
-          yes | buildozer -v android debug
+          # Автоматично приймаємо ліцензії Android перед початком
+          yes | buildozer android status
+          # Запускаємо збірку
+          buildozer -v android debug
+        env:
+          # Допомагаємо Gradle не "впасти" через пам'ять
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
 
       - name: Upload
         uses: actions/upload-artifact@v4
