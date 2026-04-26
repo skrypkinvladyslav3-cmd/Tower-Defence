@@ -22,17 +22,17 @@ jobs:
 
       - name: Build APK
         run: |
-          # 1. Створюємо папку для SDK заздалегідь, щоб прийняти ліцензії
-          mkdir -p ~/.android && touch ~/.android/repositories.cfg
+          # Створюємо структуру папок для ліцензій Android SDK заздалегідь
+          mkdir -p .buildozer/android/platform/android-sdk/licenses
           
-          # 2. Запускаємо чисту збірку без 'yes |', 
-          # але з налаштуваннями пам'яті всередині самого buildozer
-          buildozer -v android debug
+          # Записуємо хеші ліцензій (це стандартні значення, які Buildozer хоче бачити)
+          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb7437e3007b316d46af\n84831b9409646a918e30573bab4c9c91346d8abd" > .buildozer/android/platform/android-sdk/licenses/android-sdk-license
+          echo -e "\n845334434440556443444543344405564434445" > .buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+          
+          # Запускаємо збірку з автоматичним погодженням через змінну середовища
+          APP_ANDROID_ACCEPT_SDK_LICENSE=1 buildozer -v android debug
         env:
-          # Обмежуємо Gradle, щоб він не займав усю пам'ять сервера
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
-          # Приймаємо ліцензії автоматично через змінну оточення
-          BUILDOZER_ALLOW_ORG_GRADLE_PROJECT_ANDROID_SKIP_SDK_READ: 1
 
       - name: Upload
         uses: actions/upload-artifact@v4
