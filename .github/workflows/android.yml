@@ -13,29 +13,36 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
 
-      - name: Install deps
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+          sudo apt install -y git zip unzip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
           pip install --upgrade pip
           pip install buildozer cython==0.29.33
 
-      - name: Build APK
+      - name: Build with Buildozer
         run: |
-          # Створюємо структуру папок для ліцензій Android SDK заздалегідь
-          mkdir -p .buildozer/android/platform/android-sdk/licenses
+          # Приймаємо всі ліцензії через офіційний інструмент Android перед запуском
+          mkdir -p ~/.android && touch ~/.android/repositories.cfg
+          # Видаляємо старі хвости, якщо вони були
+          rm -rf .buildozer/android/platform/android-sdk/licenses
           
-          # Записуємо хеші ліцензій (це стандартні значення, які Buildozer хоче бачити)
-          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb7437e3007b316d46af\n84831b9409646a918e30573bab4c9c91346d8abd" > .buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n845334434440556443444543344405564434445" > .buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-          
-          # Запускаємо збірку з автоматичним погодженням через змінну середовища
-          APP_ANDROID_ACCEPT_SDK_LICENSE=1 buildozer -v android debug
+          # Запускаємо збірку з прямим погодженням ліцензій
+          yes | buildozer -v android debug
         env:
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
+          # Ці налаштування змушують Gradle бути дуже тихим і не вилітати через пам'ять
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.vfs.watch=false"
+          # Важливо для нових версій Buildozer
+          APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
 
-      - name: Upload
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TowerDefense
+          name: TowerDefense-Game
           path: bin/*.apk
